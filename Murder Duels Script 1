@@ -1,0 +1,296 @@
+-- [[ PX HUB - FOV CIRCLE CENTER FIXED ]] --
+-- [[ Director: acex ]] --
+
+local Success, Error = pcall(function()
+    local Players = game:GetService("Players")
+    local LocalPlayer = Players.LocalPlayer
+    local RunService = game:GetService("RunService")
+    local Camera = workspace.CurrentCamera
+    
+    local Rayfield = loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
+    local Window = Rayfield:CreateWindow({
+        Name = "PX HUB",
+        LoadingTitle = "Loading Center FOV Core...",
+        LoadingSubtitle = "by acex",
+        ConfigurationSaving = { Enabled = false },
+        KeySystem = false
+    })
+
+    local TabCombat = Window:CreateTab("Combat", 4483362458)
+    local TabVisual = Window:CreateTab("Visual", 4483362458)
+    local TabMovement = Window:CreateTab("Movement", 4483362458)
+    local TabHitbox = Window:CreateTab("Hitbox", 4483362458)
+
+    -- States & Configs
+    local AimlockEnabled = false
+    local AimlockTarget = "Head"
+    local TeamCheckEnabled = true
+    local FovCircleEnabled = false
+    local FovRadius = 150
+    local MaxArenaDistance = 300
+
+    local EspOutlineEnabled = false
+    local EspNameEnabled = false
+    local EspColor = Color3.fromRGB(255, 50, 50)
+    
+    local SpeedEnabled = false
+    local SpeedValue = 1
+    local JumpEnabled = false
+    local JumpValue = 50
+    
+    local HitboxEnabled = false
+    local HitboxTargetPart = "Head"
+    local HitboxSize = 2
+
+    -- FOV Circle Drawing Object (Centered)
+    local FOVRing = Drawing.new("Circle")
+    FOVRing.Thickness = 1.5
+    FOVRing.NumSides = 60
+    FOVRing.Filled = false
+    FOVRing.Color = Color3.fromRGB(255, 255, 255)
+
+    -- [[ COMBAT TAB ]] --
+    TabCombat:CreateToggle({
+        Name = "Enable Aimlock",
+        CurrentValue = false,
+        Callback = function(v) AimlockEnabled = v end
+    })
+
+    TabCombat:CreateDropdown({
+        Name = "Aimlock Target Part",
+        Options = {"Head", "Body"},
+        CurrentOption = "Head",
+        Callback = function(v) AimlockTarget = v[1] end
+    })
+
+    TabCombat:CreateToggle({
+        Name = "Team Check",
+        CurrentValue = true,
+        Callback = function(v) TeamCheckEnabled = v end
+    })
+
+    TabCombat:CreateToggle({
+        Name = "Show FOV Circle",
+        CurrentValue = false,
+        Callback = function(v) FovCircleEnabled = v end
+    })
+
+    TabCombat:CreateInput({
+        Name = "FOV Radius Size (Type Number)",
+        PlaceholderText = "150",
+        RemoveTextAfterFocusLost = false,
+        Callback = function(text)
+            local num = tonumber(text)
+            if num then FovRadius = num end
+        end
+    })
+
+    -- [[ VISUAL TAB ]] --
+    TabVisual:CreateToggle({
+        Name = "ESP Outline (Body Highlight)",
+        CurrentValue = false,
+        Callback = function(v) EspOutlineEnabled = v end
+    })
+
+    TabVisual:CreateToggle({
+        Name = "ESP Name",
+        CurrentValue = false,
+        Callback = function(v) EspNameEnabled = v end
+    })
+
+    TabVisual:CreateColorPicker({
+        Name = "ESP Color Customizer",
+        Color = Color3.fromRGB(255, 50, 50),
+        Callback = function(v) EspColor = v end
+    })
+
+    -- [[ MOVEMENT TAB ]] --
+    TabMovement:CreateToggle({
+        Name = "Fast Step Speed Hack",
+        CurrentValue = false,
+        Callback = function(v) SpeedEnabled = v end
+    })
+
+    TabMovement:CreateInput({
+        Name = "Speed Multiplier (Type Number)",
+        PlaceholderText = "1",
+        RemoveTextAfterFocusLost = false,
+        Callback = function(text)
+            local num = tonumber(text)
+            if num then SpeedValue = num end
+        end
+    })
+
+    TabMovement:CreateToggle({
+        Name = "Custom Jump Boost",
+        CurrentValue = false,
+        Callback = function(v) JumpEnabled = v end
+    })
+
+    TabMovement:CreateInput({
+        Name = "Jump Power Size (Type Number)",
+        PlaceholderText = "50",
+        RemoveTextAfterFocusLost = false,
+        Callback = function(text)
+            local num = tonumber(text)
+            if num then JumpValue = num end
+        end
+    })
+
+    -- [[ HITBOX TAB ]] --
+    TabHitbox:CreateToggle({
+        Name = "Enable Custom Hitbox",
+        CurrentValue = false,
+        Callback = function(v) HitboxEnabled = v end
+    })
+
+    TabHitbox:CreateDropdown({
+        Name = "Hitbox Target Part",
+        Options = {"Head", "HumanoidRootPart"},
+        CurrentOption = "Head",
+        Callback = function(v) HitboxTargetPart = v[1] end
+    })
+
+    TabHitbox:CreateInput({
+        Name = "Hitbox Size Studs (Type Number)",
+        PlaceholderText = "2",
+        RemoveTextAfterFocusLost = false,
+        Callback = function(text)
+            local num = tonumber(text)
+            if num then HitboxSize = num end
+        end
+    })
+
+    local NameTagStorage = {}
+
+    -- [[ MAIN RENDER LOOP ]] --
+    RunService.RenderStepped:Connect(function(dt)
+        local myChar = LocalPlayer.Character
+        local myHrp = myChar and myChar:FindFirstChild("HumanoidRootPart")
+        local humanoid = myChar and myChar:FindFirstChildOfClass("Humanoid")
+
+        -- FOV Circle Fixed to Exact Screen Center
+        if FovCircleEnabled then
+            FOVRing.Visible = true
+            FOVRing.Radius = FovRadius
+            FOVRing.Position = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
+        else
+            FOVRing.Visible = false
+        end
+
+        -- Speed & Jump Logic
+        if humanoid and myHrp then
+            if SpeedEnabled and humanoid.MoveDirection.Magnitude > 0 then
+                myHrp.CFrame = myHrp.CFrame + (humanoid.MoveDirection * SpeedValue * dt * 16)
+            end
+            if JumpEnabled then
+                humanoid.UseJumpPower = true
+                humanoid.JumpPower = JumpValue
+            end
+        end
+
+        -- Aimlock Logic (Max 300 Studs & Center Screen FOV Check)
+        if AimlockEnabled and myHrp then
+            local closestTarget = nil
+            local shortestDist = FovRadius
+            local screenCenter = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
+            
+            for _, p in pairs(Players:GetPlayers()) do
+                if p ~= LocalPlayer and (not TeamCheckEnabled or p.Team ~= LocalPlayer.Team or p.Team == nil or LocalPlayer.Team == nil) then
+                    local char = p.Character
+                    if char and char:FindFirstChildOfClass("Humanoid") and char:FindFirstChildOfClass("Humanoid").Health > 0 then
+                        local hrp = char:FindFirstChild("HumanoidRootPart")
+                        local partName = (AimlockTarget == "Head") and "Head" or "HumanoidRootPart"
+                        local targetPart = char:FindFirstChild(partName)
+                        
+                        if hrp and targetPart then
+                            local worldDist = (hrp.Position - myHrp.Position).Magnitude
+                            if worldDist <= MaxArenaDistance then
+                                local screenPos, onScreen = Camera:WorldToViewportPoint(targetPart.Position)
+                                if onScreen then
+                                    local magnitude = (Vector2.new(screenPos.X, screenPos.Y) - screenCenter).Magnitude
+                                    if magnitude < shortestDist then
+                                        shortestDist = magnitude
+                                        closestTarget = targetPart
+                                    end
+                                end
+                            end
+                        end
+                    end
+                end
+            end
+            
+            if closestTarget then
+                Camera.CFrame = CFrame.new(Camera.CFrame.Position, closestTarget.Position)
+            end
+        end
+
+        -- Player Loop for ESP & Hitbox
+        for _, p in pairs(Players:GetPlayers()) do
+            if p ~= LocalPlayer then
+                local char = p.Character
+                if char and char:FindFirstChild("HumanoidRootPart") and char:FindFirstChild("Head") then
+                    local hrp = char.HumanoidRootPart
+                    local humanoid = char:FindFirstChildOfClass("Humanoid")
+                    local isEnemy = not TeamCheckEnabled or (p.Team ~= LocalPlayer.Team or p.Team == nil or LocalPlayer.Team == nil)
+                    
+                    if not NameTagStorage[p] then
+                        local txt = Drawing.new("Text")
+                        txt.Size = 14
+                        txt.Center = true
+                        txt.Outline = true
+                        NameTagStorage[p] = txt
+                    end
+                    local nameTag = NameTagStorage[p]
+
+                    local hl = char:FindFirstChild("PX_Highlight")
+                    if EspOutlineEnabled and isEnemy and humanoid and humanoid.Health > 0 then
+                        if not hl then
+                            hl = Instance.new("Highlight")
+                            hl.Name = "PX_Highlight"
+                            hl.FillTransparency = 1
+                            hl.OutlineTransparency = 0
+                            hl.Parent = char
+                        end
+                        hl.OutlineColor = EspColor
+                        hl.Enabled = true
+                    else
+                        if hl then hl.Enabled = false end
+                    end
+
+                    if EspNameEnabled and isEnemy and humanoid and humanoid.Health > 0 then
+                        local headPos, onScreen = Camera:WorldToViewportPoint(char.Head.Position + Vector3.new(0, 1, 0))
+                        local distance = (hrp.Position - myHrp.Position).Magnitude
+                        if onScreen and distance <= MaxArenaDistance then
+                            nameTag.Position = Vector2.new(headPos.X, headPos.Y)
+                            nameTag.Text = p.Name .. " [" .. math.floor(distance) .. "m]"
+                            nameTag.Color = EspColor
+                            nameTag.Visible = true
+                        else
+                            nameTag.Visible = false
+                        end
+                    else
+                        nameTag.Visible = false
+                    end
+
+                    local targetPart = char:FindFirstChild(HitboxTargetPart)
+                    if HitboxEnabled and isEnemy and targetPart and humanoid and humanoid.Health > 0 then
+                        targetPart.Size = Vector3.new(HitboxSize, HitboxSize, HitboxSize)
+                        targetPart.Transparency = 0.6
+                        targetPart.CanCollide = false
+                    elseif targetPart then
+                        targetPart.Size = (HitboxTargetPart == "Head") and Vector3.new(2, 1, 1) or Vector3.new(2, 2, 1)
+                        targetPart.Transparency = 1
+                        targetPart.CanCollide = true
+                    end
+                end
+            end
+        end
+    end)
+end)
+
+if not Error then
+    print("PX HUB Center FOV Loaded Successfully!")
+else
+    warn("Error: " .. tostring(Error))
+end
