@@ -1,0 +1,367 @@
+-- [[ PX HUB - MURDER DUELS V 0.2 ]] --
+-- [[ Director: acex ]] --
+
+local Success, Error = pcall(function()
+    local Players = game:GetService("Players")
+    local LocalPlayer = Players.LocalPlayer
+    local RunService = game:GetService("RunService")
+    local ReplicatedStorage = game:GetService("ReplicatedStorage")
+    local Workspace = game:GetService("Workspace")
+    local Camera = Workspace.CurrentCamera
+
+    -- Rayfield Library Load
+    local Rayfield = loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
+    local Window = Rayfield:CreateWindow({
+        Name = "PX HUB | Murder Duels V0.2",
+        LoadingTitle = "Loading V0.2 Core...",
+        LoadingSubtitle = "by acex",
+        ConfigurationSaving = { Enabled = false },
+        KeySystem = false
+    })
+
+    -- Tabs
+    local TabCombat = Window:CreateTab("Combat", 4483362458)
+    local TabVisual = Window:CreateTab("Visual", 4483362458)
+    local TabMovement = Window:CreateTab("Movement", 4483362458)
+
+    -- States & Configs
+    local AimlockEnabled = false
+    local AimlockTarget = "Head"
+    local FovCircleEnabled = false
+    local FovRadius = 150
+    local MaxArenaDistance = 300
+
+    local SilentAimEnabled = false
+    local WallCheckEnabled = true
+
+    local EspBodyEnabled = false
+    local EspNameEnabled = false
+    local EspColor = Color3.fromRGB(255, 50, 50)
+
+    local SpeedEnabled = false
+    local SpeedValue = 1
+    local JumpEnabled = false
+    local JumpValue = 50
+    local NoclipEnabled = false
+
+    -- Remotes
+    local shootRemote = ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("ShootReplicate")
+    local crosshairRemote = ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("CrosshairSync")
+
+    -- FOV Circle Drawing Object
+    local FOVRing = Drawing.new("Circle")
+    FOVRing.Thickness = 1.5
+    FOVRing.NumSides = 60
+    FOVRing.Filled = false
+    FOVRing.Color = Color3.fromRGB(255, 255, 255)
+
+    -- ESP Storage Containers
+    local espHighlights = {}
+    local espBillboards = {}
+
+    -- Clear ESP Function
+    local function clearAllESP()
+        for _, h in pairs(espHighlights) do if h then h:Destroy() end end
+        for _, b in pairs(espBillboards) do if b then b:Destroy() end end
+        espHighlights = {}
+        espBillboards = {}
+    end
+
+    -- [[ COMBAT TAB ]] --
+    TabCombat:CreateToggle({
+        Name = "Enable Aimlock",
+        CurrentValue = false,
+        Callback = function(v) AimlockEnabled = v end
+    })
+
+    TabCombat:CreateDropdown({
+        Name = "Aimlock Target Part",
+        Options = {"Head", "Body"},
+        CurrentOption = "Head",
+        Callback = function(v) AimlockTarget = v[1] end
+    })
+
+    TabCombat:CreateToggle({
+        Name = "Show FOV Circle",
+        CurrentValue = false,
+        Callback = function(v) FovCircleEnabled = v end
+    })
+
+    TabCombat:CreateInput({
+        Name = "FOV Radius Size (Type Number)",
+        PlaceholderText = "150",
+        RemoveTextAfterFocusLost = false,
+        Callback = function(text)
+            local num = tonumber(text)
+            if num then FovRadius = num end
+        end
+    })
+
+    TabCombat:CreateToggle({
+        Name = "Silent Aim (In FOV & No Wall Bang)",
+        CurrentValue = false,
+        Callback = function(v) SilentAimEnabled = v end
+    })
+
+    -- [[ VISUAL TAB ]] --
+    TabVisual:CreateToggle({
+        Name = "ESP Body",
+        CurrentValue = false,
+        Callback = function(v) 
+            EspBodyEnabled = v 
+            if not v then clearAllESP() end
+        end
+    })
+
+    TabVisual:CreateToggle({
+        Name = "ESP Name & Distance",
+        CurrentValue = false,
+        Callback = function(v) 
+            EspNameEnabled = v 
+            if not v then clearAllESP() end
+        end
+    })
+
+    TabVisual:CreateColorPicker({
+        Name = "ESP Color Customizer",
+        Color = Color3.fromRGB(255, 50, 50),
+        Callback = function(color) EspColor = color end
+    })
+
+    -- [[ MOVEMENT TAB ]] --
+    TabMovement:CreateToggle({
+        Name = "Fast Speed Hack",
+        CurrentValue = false,
+        Callback = function(v) SpeedEnabled = v end
+    })
+
+    TabMovement:CreateInput({
+        Name = "Speed Multiplier (1-50)",
+        PlaceholderText = "1",
+        RemoveTextAfterFocusLost = false,
+        Callback = function(text)
+            local num = tonumber(text)
+            if num then SpeedValue = math.clamp(num, 1, 50) end
+        end
+    })
+
+    TabMovement:CreateToggle({
+        Name = "Jump Boost",
+        CurrentValue = false,
+        Callback = function(v) JumpEnabled = v end
+    })
+
+    TabMovement:CreateInput({
+        Name = "Jump Boost Value (1-50)",
+        PlaceholderText = "50",
+        RemoveTextAfterFocusLost = false,
+        Callback = function(text)
+            local num = tonumber(text)
+            if num then JumpValue = math.clamp(num, 1, 50) end
+        end
+    })
+
+    TabMovement:CreateToggle({
+        Name = "Noclip",
+        CurrentValue = false,
+        Callback = function(v) NoclipEnabled = v end
+    })
+
+    -- Raycast check function
+    local function isVisible(targetPart)
+        if not WallCheckEnabled then return true end
+        local origin = Camera.CFrame.Position
+        local direction = (targetPart.Position - origin)
+        local raycastParams = RaycastParams.new()
+        raycastParams.FilterType = Enum.RaycastFilterType.Exclude
+        raycastParams.FilterDescendantsInstances = {LocalPlayer.Character}
+        
+        local result = Workspace:Raycast(origin, direction, raycastParams)
+        if result then
+            local hitInstance = result.Instance
+            if hitInstance:IsDescendantOf(targetPart.Parent) then
+                return true
+            else
+                return false
+            end
+        end
+        return true
+    end
+
+    -- Target Selector Utility
+    local function getBestTarget()
+        local bestTarget = nil
+        local closest = FovRadius
+        local viewportCenter = Camera.ViewportSize / 2
+
+        for _, v in pairs(Players:GetPlayers()) do
+            if v ~= LocalPlayer and v.Character and v.Character:FindFirstChild("Humanoid") and v.Character.Humanoid.Health > 0 then
+                local part = v.Character:FindFirstChild(AimlockTarget == "Head" and "Head" or "HumanoidRootPart")
+                if part then
+                    local screenPos, onScreen = Camera:WorldToViewportPoint(part.Position)
+                    if onScreen then
+                        local magnitude = (Vector2.new(screenPos.X, screenPos.Y) - viewportCenter).Magnitude
+                        local worldDist = (part.Position - Camera.CFrame.Position).Magnitude
+                        if magnitude < closest and worldDist <= MaxArenaDistance and isVisible(part) then
+                            closest = magnitude
+                            bestTarget = v.Character
+                        end
+                    end
+                end
+            end
+        end
+        return bestTarget
+    end
+
+    -- Main Loop
+    RunService.RenderStepped:Connect(function()
+        -- FOV Ring update
+        if FovCircleEnabled then
+            FOVRing.Visible = true
+            FOVRing.Radius = FovRadius
+            FOVRing.Position = Camera.ViewportSize / 2
+        else
+            FOVRing.Visible = false
+        end
+
+        -- Aimlock execution
+        if AimlockEnabled then
+            local target = getBestTarget()
+            if target then
+                local part = target:FindFirstChild(AimlockTarget == "Head" and "Head" or "HumanoidRootPart")
+                if part then
+                    Camera.CFrame = CFrame.new(Camera.CFrame.Position, part.Position)
+                end
+            end
+        end
+
+        -- Silent Aim execution
+        if SilentAimEnabled then
+            local target = getBestTarget()
+            if target then
+                local head = target:FindFirstChild("Head")
+                if head and isVisible(head) then
+                    local headPos = head.Position
+                    pcall(function()
+                        crosshairRemote:FireServer("Patch", {Spread = 0})
+                        shootRemote:FireServer({
+                            hitPos = headPos,
+                            to = headPos + Vector3.new(0, 1, 0),
+                            hitInstance = head,
+                            id = math.random(10000, 999999),
+                            hitNormal = (headPos - Camera.CFrame.Position).Unit,
+                            effects = {Frost = 0, Ricochet = 0, Barrage = 0},
+                            isCharacterHit = true,
+                            kind = "bullet",
+                            mode = "single",
+                            ownerUserId = LocalPlayer.UserId,
+                            isADS = false
+                        })
+                        crosshairRemote:FireServer("Patch", {Spread = 0.3})
+                    end)
+                end
+            end
+        end
+
+        -- ESP Body & Name Rendering
+        if EspBodyEnabled or EspNameEnabled then
+            for _, v in pairs(Players:GetPlayers()) do
+                if v ~= LocalPlayer and v.Character and v.Character:FindFirstChild("Humanoid") and v.Character.Humanoid.Health > 0 then
+                    local char = v.Character
+                    
+                    -- Body Highlight ESP
+                    if EspBodyEnabled then
+                        if not espHighlights[char] then
+                            local hl = Instance.new("Highlight")
+                            hl.Adornee = char
+                            hl.FillTransparency = 0.5
+                            hl.OutlineTransparency = 0
+                            hl.Parent = char
+                            espHighlights[char] = hl
+                        end
+                        if espHighlights[char] then
+                            espHighlights[char].FillColor = EspColor
+                            espHighlights[char].OutlineColor = EspColor
+                        end
+                    else
+                        if espHighlights[char] then
+                            espHighlights[char]:Destroy()
+                            espHighlights[char] = nil
+                        end
+                    end
+
+                    -- Name & Distance ESP Tag
+                    if EspNameEnabled then
+                        local head = char:FindFirstChild("Head")
+                        if head and not espBillboards[char] then
+                            local bg = Instance.new("BillboardGui")
+                            bg.Name = "PX_ESP_Tag"
+                            bg.Size = UDim2.new(0, 200, 0, 50)
+                            bg.StudsOffset = Vector3.new(0, 2.5, 0)
+                            bg.AlwaysOnTop = true
+                            bg.Parent = head
+
+                            local txt = Instance.new("TextLabel")
+                            txt.Size = UDim2.new(1, 0, 1, 0)
+                            txt.BackgroundTransparency = 1
+                            txt.TextColor3 = Color3.fromRGB(255, 255, 255)
+                            txt.TextStrokeTransparency = 0.3
+                            txt.TextSize = 13
+                            txt.Font = Enum.Font.SourceSansBold
+                            txt.Parent = bg
+
+                            espBillboards[char] = bg
+                        end
+
+                        if espBillboards[char] and head then
+                            local dist = math.floor((head.Position - Camera.CFrame.Position).Magnitude)
+                            local label = espBillboards[char]:FindFirstChildOfClass("TextLabel")
+                            if label then
+                                label.Text = v.Name .. " [" .. dist .. "m]"
+                            end
+                        end
+                    else
+                        if espBillboards[char] then
+                            espBillboards[char]:Destroy()
+                            espBillboards[char] = nil
+                        end
+                    end
+                else
+                    if espHighlights[v] then
+                        espHighlights[v]:Destroy()
+                        espHighlights[v] = nil
+                    end
+                    if espBillboards[v] then
+                        espBillboards[v]:Destroy()
+                        espBillboards[v] = nil
+                    end
+                end
+            end
+        else
+            clearAllESP()
+        end
+
+        -- Movement Hacks (Fixed Jump Boost & Speed)
+        local char = LocalPlayer.Character
+        if char and char:FindFirstChild("Humanoid") then
+            local humanoid = char.Humanoid
+            if SpeedEnabled then
+                humanoid.WalkSpeed = 16 + (SpeedValue * 2)
+            end
+            if JumpEnabled then
+                humanoid.UseJumpPower = true
+                humanoid.JumpPower = 50 + (JumpValue * 4)
+            end
+        end
+
+        -- Noclip
+        if NoclipEnabled and char then
+            for _, part in pairs(char:GetDescendants()) do
+                if part:IsA("BasePart") then
+                    part.CanCollide = false
+                end
+            end
+        end
+    end)
+
+end)
